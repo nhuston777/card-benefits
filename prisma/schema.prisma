@@ -1,0 +1,143 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Credit card benefits tracker
+// ---------------------------------------------------------------------------
+
+/// How often a benefit's value resets.
+enum BenefitFrequency {
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  /// Resets each calendar year (Jan 1).
+  ANNUAL
+  /// Resets on the card's anniversary (needs CreditCard.openedOn).
+  CARDMEMBER_YEAR
+  /// A single credit that never resets (e.g. Global Entry every 4 years).
+  ONE_TIME
+  /// A standing perk with no meter: lounge access, insurance, status.
+  ONGOING
+}
+
+enum BenefitCategory {
+  TRAVEL
+  AIRLINE
+  HOTEL
+  DINING
+  GROCERIES
+  RIDESHARE
+  STREAMING
+  SHOPPING
+  FITNESS
+  LOUNGE
+  INSURANCE
+  STATUS
+  POINTS
+  OTHER
+}
+
+/// Where the money is spent, for "which card should I use?".
+enum SpendCategory {
+  DINING
+  GROCERIES
+  GAS
+  TRAVEL
+  FLIGHTS
+  HOTELS
+  RENTAL_CARS
+  TRANSIT
+  RIDESHARE
+  STREAMING
+  DRUGSTORES
+  ONLINE_SHOPPING
+  ENTERTAINMENT
+  RENT
+  PORTAL_TRAVEL
+  EVERYTHING_ELSE
+}
+
+model CreditCard {
+  id              String        @id @default(cuid())
+  name            String
+  issuer          String?
+  lastFour        String?
+  /// Whole dollars.
+  annualFee       Int           @default(0)
+  /// Drives the cardmember-year anniversary and renewal reminders.
+  openedOn        DateTime?
+  /// What one point is worth to you, in cents (cash back cards use 1.0).
+  pointValueCents Float         @default(1.0)
+  /// Card-art color used as an accent in the UI.
+  color           String        @default("#3a2f28")
+  notes           String?
+  /// The fee is on the card's terms but isn't being charged right now
+  /// (military MLA/SCRA waivers, a retention credit, a first-year waiver).
+  feeWaived       Boolean       @default(false)
+  /// When the waiver ends, if known. The fee resumes at the first
+  /// anniversary on or after this day.
+  feeWaivedUntil  DateTime?
+  /// Closed or product-changed cards stay for history but leave the dashboard.
+  archived        Boolean       @default(false)
+  benefits        Benefit[]
+  earningRates    EarningRate[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Benefit {
+  id                 String           @id @default(cuid())
+  cardId             String
+  card               CreditCard       @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name               String
+  category           BenefitCategory  @default(OTHER)
+  frequency          BenefitFrequency @default(ANNUAL)
+  /// Value per period in cents; null for perks with no dollar meter.
+  valueCents         Int?
+  requiresEnrollment Boolean          @default(false)
+  enrolled           Boolean          @default(false)
+  notes              String?
+  sortOrder          Int              @default(0)
+  usages             BenefitUsage[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([cardId])
+}
+
+model BenefitUsage {
+  id          String   @id @default(cuid())
+  benefitId   String
+  benefit     Benefit  @relation(fields: [benefitId], references: [id], onDelete: Cascade)
+  /// Which reset window this counts against, e.g. "2026-09", "2026-Q3",
+  /// "2026-H2", "2026", "cy-2026", or "once". See src/lib/cards/periods.ts.
+  periodKey   String
+  amountCents Int
+  usedOn      DateTime @default(now())
+  note        String?
+
+  @@index([benefitId, periodKey])
+}
+
+model EarningRate {
+  id         String        @id @default(cuid())
+  cardId     String
+  card       CreditCard    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  category   SpendCategory
+  /// 4 = 4x points or 4% cash back.
+  multiplier Float
+  /// Spending caps, portal-only rules, etc.
+  notes      String?
+
+  @@index([cardId])
+}
