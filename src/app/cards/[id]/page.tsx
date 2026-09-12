@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { deleteCard, setCardArchived } from "@/lib/cards/actions";
 import {
-  BENEFIT_CATEGORY_ICONS,
   SPEND_CATEGORY_LABELS,
   type BenefitCategory,
   type BenefitFrequency,
@@ -267,11 +266,6 @@ export default async function CardDetailPage({ params }: PageProps<"/cards/[id]"
           <p className="whitespace-pre-wrap text-sm text-[var(--color-ink)]">{card.notes}</p>
         </section>
       )}
-
-      <p className="mt-10 text-xs text-[var(--color-ink-soft)]">
-        {BENEFIT_CATEGORY_ICONS.OTHER} Anything logged here is your own bookkeeping — the issuer&apos;s app is the
-        source of truth for what&apos;s actually posted.
-      </p>
     </div>
   );
 }
