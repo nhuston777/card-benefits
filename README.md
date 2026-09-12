@@ -25,9 +25,20 @@ What it does with that:
   real return (multiplier × your point value), with the runner-up.
 - **Fee coverage** — per card and overall: fees paid, credits on offer, value realized
   this year, and value still waiting to be used.
+- **Online lookup** — type any card's name and the app searches the issuer's site and
+  recent coverage for its current credits, fee, and earning rates, then fills the form
+  for you to review. A card saved with no benefits gets a "find its benefits" panel that
+  shows what it found as a checklist to confirm. Needs `ANTHROPIC_API_KEY`; see below.
 
 **Stack:** Next.js (App Router, Server Actions) + Prisma + Postgres. Deploys free on
-Vercel with a free Neon Postgres database. `DATABASE_URL` is the only setting.
+Vercel with a free Neon Postgres database. `DATABASE_URL` is the only required setting.
+
+## Environment variables
+
+| Variable | Required | What it's for |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string (Neon in production). |
+| `ANTHROPIC_API_KEY` | for online lookup | Lets the app research a card's benefits with Claude and web search. Create a key at [console.anthropic.com](https://console.anthropic.com); each lookup costs a few cents. Unset, the lookup buttons explain how to enable it and everything else works. |
 
 ## Local development
 

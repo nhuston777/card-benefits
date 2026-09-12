@@ -6,6 +6,29 @@ import { CardArt } from "./CardArt";
 export function TemplatePicker() {
   return (
     <div className="space-y-4">
+      <form
+        action="/cards/new"
+        method="get"
+        className="flex flex-col gap-2 rounded-2xl border border-[var(--color-clay)]/80 bg-white/80 p-4 shadow-sm sm:flex-row sm:items-end"
+      >
+        <input type="hidden" name="template" value="blank" />
+        <label className="block min-w-0 flex-1">
+          <span className="text-sm font-medium text-[var(--color-ink-soft)]">Any card, by name</span>
+          <input
+            name="lookup"
+            required
+            placeholder="Capital One Venture X, Citi Strata Elite, Bilt…"
+            className="mt-1 w-full rounded-xl border border-[var(--color-clay)] bg-white px-3.5 py-2.5 text-[var(--color-ink)] placeholder:text-stone-400 focus:border-[var(--color-terracotta)] focus:outline-none focus:ring-2 focus:ring-[var(--color-terracotta)]/20"
+          />
+        </label>
+        <button
+          type="submit"
+          className="shrink-0 rounded-full bg-[var(--color-ink)] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-black"
+        >
+          🔎 Find its benefits
+        </button>
+      </form>
+      <p className="text-xs uppercase tracking-[0.14em] text-[var(--color-ink-soft)]">Or start from a preset</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {CARD_TEMPLATES.map((t) => (
           <Link

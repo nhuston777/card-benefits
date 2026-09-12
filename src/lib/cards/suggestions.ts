@@ -110,6 +110,17 @@ function cardSuggestions(summary: CardSummary, now: Date): Suggestion[] {
   const { card } = summary;
   const href = `/cards/${card.id}`;
 
+  if (summary.benefits.length === 0) {
+    out.push({
+      id: `no-benefits-${card.id}`,
+      priority: "setup",
+      title: `${card.name} has no benefits listed yet`,
+      detail: "Look them up online from the card's page and confirm which ones to track.",
+      href,
+      cardId: card.id,
+    });
+  }
+
   if (card.annualFee > 0) {
     const trackedDays = Math.round((now.getTime() - card.createdAt.getTime()) / 86_400_000);
     const enoughHistory = trackedDays >= MIN_TRACKED_DAYS;

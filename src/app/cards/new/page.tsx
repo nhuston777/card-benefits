@@ -7,12 +7,15 @@ import { emptyRateDraft } from "@/lib/cards/drafts";
 import { findTemplate, templateBenefitDrafts, templateRateDrafts } from "@/lib/cards/templates";
 
 export const metadata: Metadata = { title: "Add a card · Card Benefits" };
+// The online lookup can take a minute of server time.
+export const maxDuration = 120;
 
 export default async function NewCardPage({ searchParams }: PageProps<"/cards/new">) {
-  const { template: templateParam } = await searchParams;
+  const { template: templateParam, lookup: lookupParam } = await searchParams;
   const slug = Array.isArray(templateParam) ? templateParam[0] : templateParam;
+  const lookupName = (Array.isArray(lookupParam) ? lookupParam[0] : lookupParam)?.trim() || null;
   const template = findTemplate(slug);
-  const showForm = slug === "blank" || template != null;
+  const showForm = slug === "blank" || template != null || lookupName != null;
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
@@ -23,20 +26,21 @@ export default async function NewCardPage({ searchParams }: PageProps<"/cards/ne
         ← {showForm ? "Pick a different card" : "Back"}
       </Link>
       <h1 className="mt-2 mb-1 font-heading text-2xl text-[var(--color-ink)] sm:text-3xl">
-        {template ? `Add ${template.name}` : showForm ? "Add a card" : "Which card?"}
+        {template ? `Add ${template.name}` : lookupName ? `Add ${lookupName}` : showForm ? "Add a card" : "Which card?"}
       </h1>
       <p className="mb-6 text-sm text-[var(--color-ink-soft)]">
         {showForm
           ? "Check every line — especially the open date, which drives renewal reminders."
-          : "Start from a preset and fix what's changed, or build it from scratch."}
+          : "Type any card to look up its benefits, start from a preset, or build it from scratch."}
       </p>
 
       {showForm ? (
         <div className="rounded-2xl border border-[var(--color-clay)]/80 bg-white/80 p-5 shadow-sm sm:p-7">
           <CardForm
-            key={slug}
+            key={`${slug}-${lookupName ?? ""}`}
             action={createCard}
             submitLabel="Add card"
+            autoLookup={lookupName != null}
             card={
               template
                 ? {
@@ -46,7 +50,9 @@ export default async function NewCardPage({ searchParams }: PageProps<"/cards/ne
                     pointValueCents: template.pointValueCents,
                     color: template.color,
                   }
-                : undefined
+                : lookupName
+                  ? { name: lookupName }
+                  : undefined
             }
             initialBenefits={template ? templateBenefitDrafts(template) : []}
             initialRates={template ? templateRateDrafts(template) : [emptyRateDraft()]}

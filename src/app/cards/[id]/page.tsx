@@ -15,11 +15,14 @@ import { summarizeCard } from "@/lib/cards/summary";
 import { buildSuggestions } from "@/lib/cards/suggestions";
 import { CardArt } from "@/components/cards/CardArt";
 import { BenefitTracker } from "@/components/cards/BenefitTracker";
+import { BenefitLookupPanel } from "@/components/cards/BenefitLookupPanel";
 import { DeleteCardButton } from "@/components/cards/DeleteCardButton";
 import { SuggestionList } from "@/components/cards/SuggestionList";
 import { UsageHistory } from "@/components/cards/UsageHistory";
 
 export const dynamic = "force-dynamic";
+// The online benefit lookup can take a minute of server time.
+export const maxDuration = 120;
 
 export async function generateMetadata({ params }: PageProps<"/cards/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -149,6 +152,17 @@ export default async function CardDetailPage({ params }: PageProps<"/cards/[id]"
         <section className="mt-8">
           <h2 className="mb-3 font-heading text-xl text-[var(--color-ink)]">Do this next</h2>
           <SuggestionList suggestions={suggestions} />
+        </section>
+      )}
+
+      {card.benefits.length === 0 && !card.archived && (
+        <section className="mt-8">
+          <BenefitLookupPanel
+            cardId={card.id}
+            cardName={card.name}
+            issuer={card.issuer ?? ""}
+            hasRates={card.earningRates.length > 0}
+          />
         </section>
       )}
 

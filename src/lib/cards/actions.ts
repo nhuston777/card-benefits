@@ -15,8 +15,16 @@ import {
 import type { BenefitDraft, RateDraft } from "./drafts";
 import { parseDollarsToCents } from "./money";
 import { currentPeriod, parseDateOnly } from "./periods";
+import { LookupError, isLookupConfigured, lookupCardBenefits, type CardLookupResult } from "./lookup";
 
 export type ActionState = { error?: string };
+
+export type LookupState = {
+  result?: CardLookupResult;
+  error?: string;
+  /** True when the failure is a missing API key rather than a bad search. */
+  notConfigured?: boolean;
+};
 
 function includes<T extends string>(list: readonly T[], value: string): value is T {
   return (list as readonly string[]).includes(value);
@@ -311,4 +319,58 @@ export async function setBenefitEnrolled(benefitId: string, enrolled: boolean) {
     select: { cardId: true },
   });
   revalidateCard(benefit.cardId);
+}
+
+/** Researches a card online and returns its benefits as form rows to review. */
+export async function lookupBenefits(name: string, issuer: string): Promise<LookupState> {
+  if (!isLookupConfigured() && !process.env.CARD_LOOKUP_FIXTURE) {
+    return {
+      notConfigured: true,
+      error: "Online lookup isn't turned on. Add ANTHROPIC_API_KEY in Vercel's environment variables and redeploy.",
+    };
+  }
+  try {
+    return { result: await lookupCardBenefits(String(name ?? ""), String(issuer ?? "")) };
+  } catch (e) {
+    if (e instanceof LookupError) return { error: e.message };
+    console.error("Card lookup failed", e);
+    return { error: "The lookup failed. Try again in a moment." };
+  }
+}
+
+/**
+ * Appends reviewed lookup results to an existing card. Rates are only added
+ * when the card has none, so a hand-tuned set isn't quietly duplicated.
+ */
+export async function addBenefitsToCard(
+  cardId: string,
+  benefitsJson: string,
+  ratesJson: string
+): Promise<ActionState> {
+  try {
+    const card = await prisma.creditCard.findUnique({
+      where: { id: cardId },
+      include: { benefits: { select: { sortOrder: true } }, earningRates: { select: { id: true } } },
+    });
+    if (!card) throw new Error("That card no longer exists");
+
+    const benefits = parseBenefits(benefitsJson);
+    const rates = card.earningRates.length === 0 ? parseRates(ratesJson) : [];
+    if (benefits.length === 0 && rates.length === 0) throw new Error("Nothing selected to add");
+
+    const nextOrder = card.benefits.reduce((m, b) => Math.max(m, b.sortOrder + 1), 0);
+    await prisma.$transaction([
+      prisma.benefit.createMany({
+        data: benefits.map(({ id: _draftId, ...b }, i) => {
+          void _draftId;
+          return { ...b, sortOrder: nextOrder + i, cardId };
+        }),
+      }),
+      prisma.earningRate.createMany({ data: rates.map((r) => ({ ...r, cardId })) }),
+    ]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Something went wrong" };
+  }
+  revalidateCard(cardId);
+  return {};
 }

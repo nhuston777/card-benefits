@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import type { ActionState } from "@/lib/cards/actions";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { lookupBenefits, type ActionState } from "@/lib/cards/actions";
 import {
   BENEFIT_CATEGORIES,
   BENEFIT_CATEGORY_LABELS,
@@ -47,6 +47,7 @@ export function CardForm({
   action,
   submitLabel,
   templateNote,
+  autoLookup = false,
 }: {
   card?: CardDefaults;
   initialBenefits: BenefitDraft[];
@@ -54,8 +55,19 @@ export function CardForm({
   action: (prevState: ActionState, formData: FormData) => Promise<ActionState>;
   submitLabel: string;
   templateNote?: string;
+  /** Run the online lookup as soon as the form mounts (the "search for a card" flow). */
+  autoLookup?: boolean;
 }) {
   const [state, formAction] = useActionState(action, {});
+  const formRef = useRef<HTMLFormElement>(null);
+  const [annualFee, setAnnualFee] = useState(String(card?.annualFee ?? 0));
+  const [lookupPending, startLookup] = useTransition();
+  const [lookupNote, setLookupNote] = useState<{
+    tone: "ok" | "error";
+    text: string;
+    sources?: string[];
+  } | null>(null);
+  const autoLookupStarted = useRef(false);
   const [benefits, setBenefits] = useState<BenefitDraft[]>(initialBenefits);
   const [rates, setRates] = useState<RateDraft[]>(initialRates);
   const [color, setColor] = useState(card?.color ?? CARD_COLORS[0]);
@@ -83,8 +95,67 @@ export function CardForm({
 
   const isCashBack = Number(pointValue) === 1;
 
+  function field(name: string) {
+    return formRef.current?.elements.namedItem(name) as HTMLInputElement | null;
+  }
+
+  /** Searches the web for the card's benefits and drops them into the rows below for review. */
+  function runLookup() {
+    const name = field("name")?.value.trim() ?? "";
+    const issuer = field("issuer")?.value.trim() ?? "";
+    if (!name) {
+      setLookupNote({ tone: "error", text: "Type the card's name first, then look it up." });
+      field("name")?.focus();
+      return;
+    }
+    setLookupNote(null);
+    startLookup(async () => {
+      const res = await lookupBenefits(name, issuer);
+      if (!res.result) {
+        setLookupNote({ tone: "error", text: res.error ?? "The lookup failed." });
+        return;
+      }
+      const found = res.result;
+      setBenefits((prev) => {
+        const kept = prev.filter((b) => b.name.trim());
+        return kept.length > 0 ? [...kept, ...found.benefits] : found.benefits;
+      });
+      setRates((prev) => {
+        const kept = prev.filter((r) => r.category !== "EVERYTHING_ELSE" || r.multiplier !== "1" || r.notes);
+        return kept.length > 0 ? prev : found.earningRates;
+      });
+      if ((Number(annualFee) || 0) === 0 && found.annualFee != null) setAnnualFee(String(found.annualFee));
+      if (Number(pointValue) === 1 && found.pointValueCents != null) setPointValue(String(found.pointValueCents));
+      const issuerInput = field("issuer");
+      if (issuerInput && !issuerInput.value && found.issuer) issuerInput.value = found.issuer;
+      const nameInput = field("name");
+      if (nameInput && found.cardName && nameInput.value.trim().toLowerCase() !== found.cardName.toLowerCase()) {
+        nameInput.value = found.cardName;
+      }
+      const count = found.benefits.length;
+      setLookupNote({
+        tone: "ok",
+        text: `Found ${count} benefit${count === 1 ? "" : "s"} and ${found.earningRates.length} earning rate${
+          found.earningRates.length === 1 ? "" : "s"
+        } for ${found.cardName}. Check each line against your card's benefits page before saving.${
+          found.caveats ? ` ${found.caveats}` : ""
+        }`,
+        sources: found.sources,
+      });
+    });
+  }
+
+  useEffect(() => {
+    if (autoLookup && !autoLookupStarted.current) {
+      autoLookupStarted.current = true;
+      runLookup();
+    }
+    // Only meant to fire once, on mount, for the "search for a card" flow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLookup]);
+
   return (
-    <form action={formAction} className="space-y-8">
+    <form ref={formRef} action={formAction} className="space-y-8">
       <input type="hidden" name="benefitsJson" value={JSON.stringify(benefits)} />
       <input type="hidden" name="ratesJson" value={JSON.stringify(rates)} />
 
@@ -136,7 +207,8 @@ export function CardForm({
               type="number"
               min={0}
               step={1}
-              defaultValue={card?.annualFee ?? 0}
+              value={annualFee}
+              onChange={(e) => setAnnualFee(e.target.value)}
               className={`${inputClass} mt-1`}
             />
             <label className="mt-2 flex items-center gap-2 text-sm text-[var(--color-ink-soft)]">
@@ -235,18 +307,56 @@ export function CardForm({
               One row per credit. Leave the value blank for perks with no dollar meter, like lounge access.
             </p>
           </div>
-          <button
-            type="button"
-            className={ghostButton}
-            onClick={() => setBenefits((prev) => [...prev, emptyBenefitDraft()])}
-          >
-            + Add benefit
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              disabled={lookupPending}
+              onClick={runLookup}
+              className="rounded-full bg-[var(--color-ink)] px-3.5 py-1.5 text-xs font-medium text-white transition hover:bg-black disabled:opacity-60"
+            >
+              {lookupPending ? "Searching…" : "🔎 Look up online"}
+            </button>
+            <button
+              type="button"
+              className={ghostButton}
+              onClick={() => setBenefits((prev) => [...prev, emptyBenefitDraft()])}
+            >
+              + Add benefit
+            </button>
+          </div>
         </div>
 
-        {benefits.length === 0 && (
+        {lookupPending && (
+          <p className="rounded-xl border border-[var(--color-clay)] bg-white/70 px-4 py-3 text-sm text-[var(--color-ink-soft)]">
+            Searching the issuer&apos;s site and recent coverage for this card&apos;s credits. This takes
+            about a minute.
+          </p>
+        )}
+        {lookupNote && (
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              lookupNote.tone === "ok"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-rose-200 bg-rose-50 text-rose-800"
+            }`}
+          >
+            <p>{lookupNote.text}</p>
+            {lookupNote.sources && lookupNote.sources.length > 0 && (
+              <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <span className="opacity-70">Sources:</span>
+                {lookupNote.sources.map((url) => (
+                  <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="underline">
+                    {new URL(url).hostname.replace(/^www\./, "")}
+                  </a>
+                ))}
+              </p>
+            )}
+          </div>
+        )}
+
+        {benefits.length === 0 && !lookupPending && (
           <p className="rounded-xl border border-dashed border-[var(--color-clay)] px-4 py-6 text-center text-sm text-[var(--color-ink-soft)]">
-            No benefits yet. Add the credits this card gives you.
+            No benefits yet. Look them up online, or add the credits this card gives you by hand.
           </p>
         )}
 
