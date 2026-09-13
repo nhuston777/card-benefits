@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import {
   markBenefitUsed,
   recordUsage,
@@ -30,6 +31,8 @@ export type BenefitRowProps = {
   requiresEnrollment: boolean;
   enrolled: boolean;
   notes: string | null;
+  /** Shown as a chip when the row appears outside its own card's page. */
+  card?: { id: string; name: string; color: string };
 };
 
 const STATE_STYLES: Record<BenefitState, string> = {
@@ -131,6 +134,15 @@ export function BenefitTracker({ row }: { row: BenefitRowProps }) {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            {row.card && (
+              <Link
+                href={`/cards/${row.card.id}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-clay)]/80 bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]"
+              >
+                <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: row.card.color }} />
+                {row.card.name}
+              </Link>
+            )}
             <h3 className="font-medium text-[var(--color-ink)]">{row.name}</h3>
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATE_STYLES[row.state]}`}>
               {STATE_LABELS[row.state]}

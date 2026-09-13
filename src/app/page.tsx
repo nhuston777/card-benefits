@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { rankCardsBySpend, summarizeCard, totals } from "@/lib/cards/summary";
+import { buildChecklist, rankCardsBySpend, summarizeCard, totals } from "@/lib/cards/summary";
 import { buildSuggestions } from "@/lib/cards/suggestions";
+import { formatCents } from "@/lib/cards/money";
+import { Checklist } from "@/components/cards/Checklist";
 import { StatTiles } from "@/components/cards/StatTiles";
 import { SuggestionList } from "@/components/cards/SuggestionList";
 import { CardTile } from "@/components/cards/CardTile";
@@ -30,8 +32,18 @@ export default async function CardsPage() {
   const archived = cards.filter((c) => c.archived);
   const summaries = active.map((c) => summarizeCard(c, now));
   const sum = totals(summaries);
-  const suggestions = buildSuggestions(summaries, now);
+  const checklist = buildChecklist(summaries);
+  // The checklist above already shows every credit with value left, so the
+  // suggestions here are only the decisions: fees, waivers, missing setup.
+  const suggestions = buildSuggestions(summaries, now).filter(
+    (s) => !/^(expiring|unused|onetime|enroll)-/.test(s.id)
+  );
   const rankings = rankCardsBySpend(active);
+  const toUse = checklist.expiring.length + checklist.upcoming.length + checklist.oneTime.length;
+  const toUseCents = [...checklist.expiring, ...checklist.upcoming, ...checklist.oneTime].reduce(
+    (s, b) => s + b.remainingCents,
+    0
+  );
 
   return (
     <div className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
@@ -42,7 +54,7 @@ export default async function CardsPage() {
           </p>
           <h1 className="font-heading text-3xl sm:text-5xl text-[var(--color-ink)]">Card benefits</h1>
           <p className="mt-1.5 text-sm text-[var(--color-ink-soft)]">
-            Every credit, what&apos;s been used, and what to do before it expires.
+            Everything still to be used, across every card, expiring first.
           </p>
         </div>
         <Link href="/cards/new" className={addButton}>
@@ -63,17 +75,29 @@ export default async function CardsPage() {
         </div>
       ) : (
         <div className="space-y-10">
-          <StatTiles totals={sum} />
-
           <section>
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="font-heading text-2xl text-[var(--color-ink)]">Do this next</h2>
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3">
+              <h2 className="font-heading text-2xl text-[var(--color-ink)]">Use these</h2>
               <span className="text-xs text-[var(--color-ink-soft)]">
-                {suggestions.length} suggestion{suggestions.length === 1 ? "" : "s"}
+                {toUse === 0
+                  ? "nothing outstanding"
+                  : `${formatCents(toUseCents)} across ${toUse} credit${toUse === 1 ? "" : "s"} · tap “Used” as you go`}
               </span>
             </div>
-            <SuggestionList suggestions={suggestions} limit={10} />
+            <Checklist data={checklist} />
           </section>
+
+          <StatTiles totals={sum} />
+
+          {suggestions.length > 0 && (
+            <section>
+              <div className="mb-3 flex items-baseline justify-between">
+                <h2 className="font-heading text-2xl text-[var(--color-ink)]">Decisions</h2>
+                <span className="text-xs text-[var(--color-ink-soft)]">fees, waivers, setup</span>
+              </div>
+              <SuggestionList suggestions={suggestions} />
+            </section>
+          )}
 
           <section>
             <h2 className="mb-3 font-heading text-2xl text-[var(--color-ink)]">Your cards</h2>

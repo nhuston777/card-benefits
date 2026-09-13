@@ -217,6 +217,43 @@ export function totals(summaries: CardSummary[]): Totals {
 // Which card should I use?
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The checklist: everything still to be used, across all cards
+// ---------------------------------------------------------------------------
+
+export type Checklist = {
+  /** Unused value whose window closes soon. Soonest first. */
+  expiring: BenefitStatus[];
+  /** Unused value with time left, soonest reset first. */
+  upcoming: BenefitStatus[];
+  /** One-time credits never used (Global Entry and the like). */
+  oneTime: BenefitStatus[];
+  /** Credits that can't be used until the cardholder enrolls. */
+  needsEnrollment: BenefitStatus[];
+};
+
+const byDaysLeft = (a: BenefitStatus, b: BenefitStatus) =>
+  (a.period.daysLeft ?? Infinity) - (b.period.daysLeft ?? Infinity) || b.remainingCents - a.remainingCents;
+
+export function buildChecklist(summaries: CardSummary[]): Checklist {
+  const out: Checklist = { expiring: [], upcoming: [], oneTime: [], needsEnrollment: [] };
+  for (const s of summaries) {
+    if (s.card.archived) continue;
+    for (const b of s.benefits) {
+      if (b.state === "perk" || b.state === "used" || b.remainingCents <= 0) continue;
+      if (b.needsEnrollment) out.needsEnrollment.push(b);
+      else if (b.benefit.frequency === "ONE_TIME") out.oneTime.push(b);
+      else if (b.state === "expiring") out.expiring.push(b);
+      else out.upcoming.push(b);
+    }
+  }
+  out.expiring.sort(byDaysLeft);
+  out.upcoming.sort(byDaysLeft);
+  out.oneTime.sort((a, b) => (b.valueCents ?? 0) - (a.valueCents ?? 0));
+  out.needsEnrollment.sort((a, b) => b.annualizedCents - a.annualizedCents);
+  return out;
+}
+
 export type RateOption = {
   card: CreditCard;
   rate: EarningRate;

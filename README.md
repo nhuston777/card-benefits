@@ -15,9 +15,12 @@ What it does with that:
   calendar year, cardmember year (from the open date), or one-time — with a one-click
   "used it" and a form for partial amounts. History is kept per usage so a card page
   shows exactly what you got out of it.
-- **Do this next** — a ranked list: credits expiring in the next few days, annual fees
-  about to post with a keep-or-downgrade verdict based on the past 12 months of realized
-  value, benefits that need enrollment, and everything still unused this period.
+- **Use these** — the home page leads with every credit still holding value across all
+  cards, expiring first, then coming up, then one-time credits like Global Entry, each
+  with its own "Used all" and "Log part" buttons. Credits gated on enrollment sit apart
+  with a link into the card.
+- **Decisions** — annual fees about to post with a keep-or-downgrade verdict based on the
+  past 12 months of realized value, fee waivers ending, and missing setup.
 - **Fee waivers** — mark a fee as not currently charged (military waiver, promo) and
   optionally when the waiver ends. The dashboard shows what you actually pay today, and
   warns you before the first real charge with a verdict based on what you've used.
