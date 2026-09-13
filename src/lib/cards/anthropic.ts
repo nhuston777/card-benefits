@@ -25,8 +25,17 @@ export function anthropicClient() {
  */
 export function describeFailure(e: unknown): string {
   let text: string;
-  if (e instanceof Anthropic.APIError) text = `API error ${e.status ?? ""} ${e.message}`.trim();
-  else if (e instanceof Error) text = `${e.name}: ${e.message}`;
+  if (e instanceof Anthropic.APIError) {
+    // The SDK message embeds the API's JSON body; surface just its sentence.
+    const body = e.error as { error?: { message?: string } } | undefined;
+    const sentence = body?.error?.message ?? e.message.replace(/^\d{3}\s*/, "");
+    text = `API error ${e.status ?? ""}: ${sentence}`;
+    if (e.status === 400 && /credit balance/i.test(sentence)) {
+      text = "the Anthropic account behind the API key has no prepaid credit. Add credits at console.anthropic.com/settings/billing, then try again.";
+    } else if (e.status === 401) {
+      text = "the API key was rejected (401). Check the ANTHROPIC_API_KEY value in Vercel.";
+    }
+  } else if (e instanceof Error) text = `${e.name}: ${e.message}`;
   else text = String(e);
   return text.replace(/sk-ant-[A-Za-z0-9_-]+/g, "sk-ant-…").slice(0, 240);
 }
