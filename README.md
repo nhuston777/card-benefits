@@ -29,6 +29,11 @@ What it does with that:
   recent coverage for its current credits, fee, and earning rates, then fills the form
   for you to review. A card saved with no benefits gets a "find its benefits" panel that
   shows what it found as a checklist to confirm. Needs `ANTHROPIC_API_KEY`; see below.
+- **Update from screenshots** — issuers don't expose credit balances through any API, so
+  the app reads screenshots instead. Screenshot the benefits screen in the Amex or Chase
+  app, add the images on the card's page, and it matches each "$10 of $15 used" or
+  "$120 remaining" to a benefit and shows the change it would log. Only what you confirm
+  is written; the images are not stored. Also needs `ANTHROPIC_API_KEY`.
 
 **Stack:** Next.js (App Router, Server Actions) + Prisma + Postgres. Deploys free on
 Vercel with a free Neon Postgres database. `DATABASE_URL` is the only required setting.

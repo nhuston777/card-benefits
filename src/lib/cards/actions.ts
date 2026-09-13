@@ -16,6 +16,8 @@ import type { BenefitDraft, RateDraft } from "./drafts";
 import { parseDollarsToCents } from "./money";
 import { currentPeriod, parseDateOnly } from "./periods";
 import { LookupError, isLookupConfigured, lookupCardBenefits, type CardLookupResult } from "./lookup";
+import { ScreenshotError, readBenefitScreenshots, type ScreenshotImage } from "./screenshot";
+import { summarizeCard } from "./summary";
 
 export type ActionState = { error?: string };
 
@@ -368,6 +370,147 @@ export async function addBenefitsToCard(
       }),
       prisma.earningRate.createMany({ data: rates.map((r) => ({ ...r, cardId })) }),
     ]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Something went wrong" };
+  }
+  revalidateCard(cardId);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Update from screenshots
+// ---------------------------------------------------------------------------
+
+/** One benefit's reading from the screenshots, with the change it implies. */
+export type ScreenshotRow = {
+  benefitId: string;
+  name: string;
+  periodKey: string;
+  periodLabel: string;
+  valueCents: number | null;
+  /** What the tracker already has logged for this period. */
+  loggedCents: number;
+  /** What the screenshots say has been used this period, if readable. */
+  reportedUsedCents: number | null;
+  /** Usage to add (negative when the tracker had logged more than the issuer shows). */
+  deltaCents: number;
+  enrolled: boolean | null;
+  /** True when the screenshot's enrollment state differs from what's stored. */
+  enrolledChange: boolean;
+  confidence: "high" | "medium" | "low";
+  evidence: string;
+};
+
+export type ScreenshotState = {
+  rows?: ScreenshotRow[];
+  unmatched?: string[];
+  notes?: string | null;
+  error?: string;
+};
+
+const SCREENSHOT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_SCREENSHOTS = 6;
+const MAX_SCREENSHOT_BYTES = 1_500_000;
+
+/** Reads issuer-app screenshots and proposes per-benefit usage updates. Nothing is written. */
+export async function readScreenshots(cardId: string, formData: FormData): Promise<ScreenshotState> {
+  try {
+    const files = formData.getAll("images").filter((f): f is File => f instanceof File && f.size > 0);
+    if (files.length === 0) throw new ScreenshotError("Add at least one screenshot");
+    if (files.length > MAX_SCREENSHOTS) throw new ScreenshotError(`Up to ${MAX_SCREENSHOTS} screenshots at a time`);
+
+    const images: ScreenshotImage[] = [];
+    for (const file of files) {
+      if (!SCREENSHOT_TYPES.has(file.type)) throw new ScreenshotError(`${file.name || "A file"} isn't a JPEG, PNG, or WebP image`);
+      if (file.size > MAX_SCREENSHOT_BYTES) throw new ScreenshotError(`${file.name || "A screenshot"} is too large after compression — try a tighter crop`);
+      images.push({
+        mediaType: file.type as ScreenshotImage["mediaType"],
+        data: Buffer.from(await file.arrayBuffer()).toString("base64"),
+      });
+    }
+
+    const card = await prisma.creditCard.findUnique({
+      where: { id: cardId },
+      include: { benefits: { include: { usages: true } }, earningRates: true },
+    });
+    if (!card) throw new ScreenshotError("That card no longer exists");
+
+    const statuses = summarizeCard(card).benefits.filter((b) => b.state !== "perk" || b.benefit.requiresEnrollment);
+    const report = await readBenefitScreenshots(card.name, card.issuer, statuses, images);
+
+    const byId = new Map(statuses.map((s) => [s.benefit.id, s]));
+    const rows: ScreenshotRow[] = [];
+    for (const r of report.readings) {
+      const s = byId.get(r.benefitId);
+      if (!s) continue;
+      const value = s.valueCents;
+      let reported: number | null = null;
+      if (r.usedDollars != null) reported = Math.round(r.usedDollars * 100);
+      else if (r.remainingDollars != null && value != null) reported = value - Math.round(r.remainingDollars * 100);
+      if (reported != null) {
+        reported = Math.max(0, value != null ? Math.min(value, reported) : reported);
+      }
+      const enrolledChange =
+        r.enrolled != null && s.benefit.requiresEnrollment && r.enrolled !== s.benefit.enrolled;
+      rows.push({
+        benefitId: s.benefit.id,
+        name: s.benefit.name,
+        periodKey: s.period.key,
+        periodLabel: s.period.label,
+        valueCents: value,
+        loggedCents: s.usedCents,
+        reportedUsedCents: reported,
+        deltaCents: reported == null ? 0 : reported - s.usedCents,
+        enrolled: r.enrolled,
+        enrolledChange,
+        confidence: r.confidence,
+        evidence: r.evidence,
+      });
+    }
+    return { rows, unmatched: report.unmatched, notes: report.notes };
+  } catch (e) {
+    if (e instanceof ScreenshotError) return { error: e.message };
+    console.error("Screenshot read failed", e);
+    return { error: "Couldn't read the screenshots. Try again in a moment." };
+  }
+}
+
+/** Applies the rows the user confirmed: a usage adjustment per benefit, plus enrollment flags. */
+export async function applyScreenshotRows(cardId: string, rowsJson: string): Promise<ActionState> {
+  try {
+    const rows = parseJson<ScreenshotRow[]>(rowsJson, []);
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error("Nothing selected to apply");
+
+    const benefits = await prisma.benefit.findMany({
+      where: { cardId, id: { in: rows.map((r) => String(r.benefitId)) } },
+      select: { id: true, requiresEnrollment: true },
+    });
+    const allowed = new Map(benefits.map((b) => [b.id, b]));
+    const stamp = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const row of rows) {
+      const benefit = allowed.get(String(row.benefitId));
+      if (!benefit) continue;
+      const delta = Math.round(Number(row.deltaCents));
+      if (Number.isFinite(delta) && delta !== 0 && typeof row.periodKey === "string" && row.periodKey) {
+        ops.push(
+          prisma.benefitUsage.create({
+            data: {
+              benefitId: benefit.id,
+              periodKey: row.periodKey,
+              amountCents: delta,
+              note: delta > 0 ? `From screenshot, ${stamp}` : `Correction from screenshot, ${stamp}`,
+            },
+          })
+        );
+      }
+      if (row.enrolledChange && typeof row.enrolled === "boolean" && benefit.requiresEnrollment) {
+        ops.push(prisma.benefit.update({ where: { id: benefit.id }, data: { enrolled: row.enrolled } }));
+      }
+    }
+    if (ops.length === 0) throw new Error("Nothing to change — the tracker already matches");
+    await prisma.$transaction(ops);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Something went wrong" };
   }

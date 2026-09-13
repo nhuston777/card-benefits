@@ -16,6 +16,7 @@ import { buildSuggestions } from "@/lib/cards/suggestions";
 import { CardArt } from "@/components/cards/CardArt";
 import { BenefitTracker } from "@/components/cards/BenefitTracker";
 import { BenefitLookupPanel } from "@/components/cards/BenefitLookupPanel";
+import { ScreenshotSync } from "@/components/cards/ScreenshotSync";
 import { DeleteCardButton } from "@/components/cards/DeleteCardButton";
 import { SuggestionList } from "@/components/cards/SuggestionList";
 import { UsageHistory } from "@/components/cards/UsageHistory";
@@ -167,12 +168,17 @@ export default async function CardDetailPage({ params }: PageProps<"/cards/[id]"
       )}
 
       <section className="mt-8">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-heading text-xl text-[var(--color-ink)]">Credits</h2>
           <span className="text-xs text-[var(--color-ink-soft)]">
             {formatCents(summary.outstandingCents)} waiting to be used
           </span>
         </div>
+        {credits.length > 0 && !card.archived && (
+          <div className="mb-3">
+            <ScreenshotSync cardId={card.id} cardName={card.name} />
+          </div>
+        )}
         {credits.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-[var(--color-clay)] bg-white/50 px-5 py-6 text-center text-sm text-[var(--color-ink-soft)]">
             No dollar credits on this card.{" "}
