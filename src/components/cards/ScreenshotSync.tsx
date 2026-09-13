@@ -9,6 +9,7 @@ import {
   type ScreenshotState,
 } from "@/lib/cards/actions";
 import { formatCents } from "@/lib/cards/money";
+import { useElapsed, waitingMessage } from "./useElapsed";
 
 /**
  * "Where am I on each credit?" without handing over a login: the user
@@ -54,6 +55,7 @@ export function ScreenshotSync({ cardId, cardName }: { cardId: string; cardName:
   const [pending, setPending] = useState<Pending[]>([]);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [reading, startReading] = useTransition();
+  const readSeconds = useElapsed(reading);
   const [applying, startApplying] = useTransition();
   const [result, setResult] = useState<ScreenshotState | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -194,7 +196,11 @@ export function ScreenshotSync({ cardId, cardName }: { cardId: string; cardName:
             >
               {reading ? "Reading…" : `Read ${pending.length || ""} screenshot${pending.length === 1 ? "" : "s"}`}
             </button>
-            {reading && <span className="text-xs text-[var(--color-ink-soft)]">Usually 15–30 seconds.</span>}
+            {reading && (
+              <span role="status" className="text-xs text-[var(--color-ink-soft)]">
+                {waitingMessage(readSeconds, "Reading")}
+              </span>
+            )}
           </div>
         </>
       )}

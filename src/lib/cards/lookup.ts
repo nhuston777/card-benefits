@@ -30,8 +30,14 @@ export type CardLookupResult = {
 };
 
 const MODEL = "claude-opus-5";
-const MAX_SEARCHES = 8;
-const MAX_TURNS = 6;
+const MAX_SEARCHES = 5;
+const MAX_TURNS = 3;
+/**
+ * The whole lookup has to finish inside the page's serverless time limit
+ * (maxDuration in the pages that call it), with room for the response.
+ */
+const DEADLINE_MS = 100_000;
+const MIN_REQUEST_MS = 15_000;
 
 export function isLookupConfigured() {
   return isAnthropicConfigured();
@@ -203,26 +209,43 @@ export async function lookupCardBenefits(name: string, issuer: string): Promise<
   }
 
   const client = anthropicClient();
+  const startedAt = Date.now();
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",
-      content: `Find the current benefits, annual fee, and earning rates for this credit card: ${query}. Today is ${new Date().toISOString().slice(0, 10)}.`,
+      content: `Find the current benefits, annual fee, and earning rates for this credit card: ${query}. Today is ${new Date().toISOString().slice(0, 10)}. Be quick: the issuer's benefits page plus one recent review is enough.`,
     },
   ];
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      system: SYSTEM_PROMPT,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium" },
-      tools: [
-        { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
-        reportTool,
-      ],
-      messages,
-    });
+    const remaining = DEADLINE_MS - (Date.now() - startedAt);
+    if (remaining < MIN_REQUEST_MS) break;
+
+    let response: Anthropic.Message;
+    try {
+      response = await client.messages.create(
+        {
+          model: MODEL,
+          max_tokens: 8000,
+          system: SYSTEM_PROMPT,
+          thinking: { type: "adaptive" },
+          output_config: { effort: "low" },
+          tools: [
+            { type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES },
+            reportTool,
+          ],
+          messages,
+        },
+        { timeout: remaining, maxRetries: 0 }
+      );
+    } catch (e) {
+      if (e instanceof Anthropic.APIConnectionTimeoutError) {
+        throw new LookupError(
+          "The search took too long and was stopped. Try again with the card's exact name and issuer, or fill the benefits in by hand."
+        );
+      }
+      throw e;
+    }
 
     const report = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === REPORT_TOOL_NAME
@@ -255,5 +278,7 @@ export async function lookupCardBenefits(name: string, issuer: string): Promise<
     });
   }
 
-  throw new LookupError("The lookup didn't finish. Try again in a moment.");
+  throw new LookupError(
+    "The search ran out of time before it could report back. Try again with the card's exact name and issuer."
+  );
 }

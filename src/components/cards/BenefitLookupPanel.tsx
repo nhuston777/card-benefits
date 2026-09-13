@@ -8,6 +8,7 @@ import {
   FREQUENCY_LABELS,
   SPEND_CATEGORY_LABELS,
 } from "@/lib/cards/constants";
+import { useElapsed, waitingMessage } from "./useElapsed";
 
 /**
  * Shown on a card that has no benefits yet: one click researches the card
@@ -27,6 +28,7 @@ export function BenefitLookupPanel({
 }) {
   const router = useRouter();
   const [searching, startSearch] = useTransition();
+  const seconds = useElapsed(searching);
   const [saving, startSave] = useTransition();
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [picked, setPicked] = useState<boolean[]>([]);
@@ -84,8 +86,8 @@ export function BenefitLookupPanel({
       )}
 
       {searching && (
-        <p className="mt-3 text-sm text-[var(--color-ink-soft)]">
-          Checking the issuer&apos;s benefits page and recent coverage. This takes about a minute.
+        <p role="status" className="mt-3 text-sm text-[var(--color-ink-soft)]">
+          {waitingMessage(seconds, "Checking the issuer's benefits page")}
         </p>
       )}
 

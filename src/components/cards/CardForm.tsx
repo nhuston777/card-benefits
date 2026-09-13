@@ -17,6 +17,7 @@ import {
 import { emptyBenefitDraft, emptyRateDraft, type BenefitDraft, type RateDraft } from "@/lib/cards/drafts";
 import { toDateOnlyInput } from "@/lib/cards/periods";
 import { SubmitButton } from "@/components/SubmitButton";
+import { useElapsed, waitingMessage } from "./useElapsed";
 
 const inputClass =
   "w-full rounded-xl border border-[var(--color-clay)] bg-white px-3.5 py-2.5 text-[var(--color-ink)] placeholder:text-stone-400 focus:border-[var(--color-terracotta)] focus:outline-none focus:ring-2 focus:ring-[var(--color-terracotta)]/20";
@@ -62,6 +63,7 @@ export function CardForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [annualFee, setAnnualFee] = useState(String(card?.annualFee ?? 0));
   const [lookupPending, startLookup] = useTransition();
+  const lookupSeconds = useElapsed(lookupPending);
   const [lookupNote, setLookupNote] = useState<{
     tone: "ok" | "error";
     text: string;
@@ -327,9 +329,11 @@ export function CardForm({
         </div>
 
         {lookupPending && (
-          <p className="rounded-xl border border-[var(--color-clay)] bg-white/70 px-4 py-3 text-sm text-[var(--color-ink-soft)]">
-            Searching the issuer&apos;s site and recent coverage for this card&apos;s credits. This takes
-            about a minute.
+          <p
+            role="status"
+            className="rounded-xl border border-[var(--color-clay)] bg-white/70 px-4 py-3 text-sm text-[var(--color-ink-soft)]"
+          >
+            {waitingMessage(lookupSeconds, "Searching for this card's credits")}
           </p>
         )}
         {lookupNote && (
