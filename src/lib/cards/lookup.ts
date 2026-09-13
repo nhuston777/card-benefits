@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
+import { anthropicClient, isAnthropicConfigured } from "./anthropic";
 import {
   BENEFIT_CATEGORIES,
   BENEFIT_FREQUENCIES,
@@ -33,7 +34,7 @@ const MAX_SEARCHES = 8;
 const MAX_TURNS = 6;
 
 export function isLookupConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+  return isAnthropicConfigured();
 }
 
 const REPORT_TOOL_NAME = "report_card_benefits";
@@ -201,7 +202,7 @@ export async function lookupCardBenefits(name: string, issuer: string): Promise<
     throw new LookupError("Benefit lookup isn't set up: add ANTHROPIC_API_KEY to the environment.");
   }
 
-  const client = new Anthropic();
+  const client = anthropicClient();
   const messages: Anthropic.MessageParam[] = [
     {
       role: "user",

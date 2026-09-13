@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
+import { anthropicClient, isAnthropicConfigured } from "./anthropic";
 import type { BenefitStatus } from "./summary";
 import { formatCents } from "./money";
 
@@ -112,11 +113,11 @@ export async function readBenefitScreenshots(
     return JSON.parse(fs.readFileSync(fixture, "utf8")) as ScreenshotReport;
   }
 
-  if (!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
+  if (!isAnthropicConfigured()) {
     throw new ScreenshotError("Screenshot reading isn't set up: add ANTHROPIC_API_KEY to the environment.");
   }
 
-  const client = new Anthropic();
+  const client = anthropicClient();
   const today = new Date().toISOString().slice(0, 10);
 
   const content: Anthropic.ContentBlockParam[] = [
