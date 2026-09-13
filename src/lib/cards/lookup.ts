@@ -1,7 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "node:fs";
-import { anthropicClient, isAnthropicConfigured } from "./anthropic";
+import { anthropicClient, isAnthropicConfigured, isTimeout } from "./anthropic";
 import {
   BENEFIT_CATEGORIES,
   BENEFIT_FREQUENCIES,
@@ -49,7 +49,8 @@ const reportTool: Anthropic.Tool = {
   name: REPORT_TOOL_NAME,
   description:
     "Report the card's benefits once research is complete. Call this exactly once, after searching. Every credit becomes one row; a credit that pays out on two schedules (e.g. $15 monthly plus $20 in December) is one row at the regular amount with the exception in notes.",
-  strict: true,
+  // Not strict: the schema uses nullable unions, and toDrafts() below
+  // tolerates anything the model sends, so validation isn't worth a 400.
   input_schema: {
     type: "object",
     additionalProperties: false,
@@ -147,46 +148,58 @@ function includes<T extends string>(list: readonly T[], value: string): value is
   return (list as readonly string[]).includes(value);
 }
 
+const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+const list = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+/** Normalizes whatever the model reported into form rows. Tolerant by design. */
 function toDrafts(report: ReportInput): CardLookupResult {
-  const benefits: BenefitDraft[] = report.benefits
-    .filter((b) => b.name.trim())
+  const benefits: BenefitDraft[] = list<Partial<ReportInput["benefits"][number]>>(report.benefits)
+    .filter((b) => b && str(b.name))
     .map((b) => {
-      const category: BenefitCategory = includes(BENEFIT_CATEGORIES, b.category) ? b.category : "OTHER";
-      const reported: BenefitFrequency = includes(BENEFIT_FREQUENCIES, b.frequency) ? b.frequency : "ANNUAL";
+      const categoryRaw = str(b.category).toUpperCase();
+      const frequencyRaw = str(b.frequency).toUpperCase();
+      const category: BenefitCategory = includes(BENEFIT_CATEGORIES, categoryRaw) ? categoryRaw : "OTHER";
+      const reported: BenefitFrequency = includes(BENEFIT_FREQUENCIES, frequencyRaw) ? frequencyRaw : "ANNUAL";
       // No dollar figure means it's a perk, whatever schedule was reported;
       // a figure on an "ongoing" row means the schedule was left out, so
       // keep the money and let the user pick the reset.
-      const hasValue = b.valueDollars != null && b.valueDollars > 0;
+      const value = num(b.valueDollars);
+      const hasValue = value != null && value > 0;
       const frequency: BenefitFrequency = !hasValue ? "ONGOING" : reported === "ONGOING" ? "ANNUAL" : reported;
       return {
-        name: b.name.trim(),
+        name: str(b.name),
         category,
         frequency,
-        value: hasValue ? String(b.valueDollars) : "",
+        value: hasValue ? String(value) : "",
         requiresEnrollment: Boolean(b.requiresEnrollment),
         enrolled: false,
-        notes: b.notes?.trim() ?? "",
+        notes: str(b.notes),
       };
     });
 
   const seen = new Set<string>();
   const earningRates: RateDraft[] = [];
-  for (const r of report.earningRates) {
-    const category: SpendCategory | null = includes(SPEND_CATEGORIES, r.category) ? r.category : null;
-    if (!category || seen.has(category) || !(r.multiplier > 0)) continue;
+  for (const r of list<Partial<ReportInput["earningRates"][number]>>(report.earningRates)) {
+    const categoryRaw = str(r?.category).toUpperCase();
+    const category: SpendCategory | null = includes(SPEND_CATEGORIES, categoryRaw) ? categoryRaw : null;
+    const multiplier = num(r?.multiplier);
+    if (!category || seen.has(category) || multiplier == null || multiplier <= 0) continue;
     seen.add(category);
-    earningRates.push({ category, multiplier: String(r.multiplier), notes: r.notes?.trim() ?? "" });
+    earningRates.push({ category, multiplier: String(multiplier), notes: str(r?.notes) });
   }
 
+  const annualFee = num(report.annualFee);
+  const pointValue = num(report.pointValueCents);
   return {
-    cardName: report.cardName.trim(),
-    issuer: report.issuer?.trim() || null,
-    annualFee: report.annualFee != null && report.annualFee >= 0 ? Math.round(report.annualFee) : null,
-    pointValueCents: report.pointValueCents != null && report.pointValueCents > 0 ? report.pointValueCents : null,
+    cardName: str(report.cardName),
+    issuer: str(report.issuer) || null,
+    annualFee: annualFee != null && annualFee >= 0 ? Math.round(annualFee) : null,
+    pointValueCents: pointValue != null && pointValue > 0 ? pointValue : null,
     benefits,
     earningRates,
-    sources: report.sources.filter((s) => /^https?:\/\//.test(s)).slice(0, 8),
-    caveats: report.caveats?.trim() || null,
+    sources: list<unknown>(report.sources).map(str).filter((s) => /^https?:\/\//.test(s)).slice(0, 8),
+    caveats: str(report.caveats) || null,
   };
 }
 
@@ -239,9 +252,9 @@ export async function lookupCardBenefits(name: string, issuer: string): Promise<
         { timeout: remaining, maxRetries: 0 }
       );
     } catch (e) {
-      if (e instanceof Anthropic.APIConnectionTimeoutError) {
+      if (isTimeout(e)) {
         throw new LookupError(
-          "The search took too long and was stopped. Try again with the card's exact name and issuer, or fill the benefits in by hand."
+          `The search took too long (${Math.round((Date.now() - startedAt) / 1000)}s) and was stopped. Try again with the card's exact name and issuer, or fill the benefits in by hand.`
         );
       }
       throw e;
@@ -251,8 +264,8 @@ export async function lookupCardBenefits(name: string, issuer: string): Promise<
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === REPORT_TOOL_NAME
     );
     if (report) {
-      const input = report.input as ReportInput;
-      if (!input.found) {
+      const input = (report.input ?? {}) as ReportInput;
+      if (input.found === false) {
         throw new LookupError(
           `Couldn't identify a card called "${query}". Check the spelling or add the issuer.`
         );

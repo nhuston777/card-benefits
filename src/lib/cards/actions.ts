@@ -17,6 +17,7 @@ import { parseDollarsToCents } from "./money";
 import { currentPeriod, parseDateOnly } from "./periods";
 import { LookupError, isLookupConfigured, lookupCardBenefits, type CardLookupResult } from "./lookup";
 import { ScreenshotError, readBenefitScreenshots, type ScreenshotImage } from "./screenshot";
+import { describeFailure } from "./anthropic";
 import { summarizeCard } from "./summary";
 
 export type ActionState = { error?: string };
@@ -336,7 +337,7 @@ export async function lookupBenefits(name: string, issuer: string): Promise<Look
   } catch (e) {
     if (e instanceof LookupError) return { error: e.message };
     console.error("Card lookup failed", e);
-    return { error: "The lookup failed. Try again in a moment." };
+    return { error: `The lookup failed — ${describeFailure(e)}` };
   }
 }
 
@@ -471,7 +472,7 @@ export async function readScreenshots(cardId: string, formData: FormData): Promi
   } catch (e) {
     if (e instanceof ScreenshotError) return { error: e.message };
     console.error("Screenshot read failed", e);
-    return { error: "Couldn't read the screenshots. Try again in a moment." };
+    return { error: `Couldn't read the screenshots — ${describeFailure(e)}` };
   }
 }
 

@@ -18,3 +18,19 @@ export function isAnthropicConfigured() {
 export function anthropicClient() {
   return new Anthropic({ apiKey: anthropicApiKey() });
 }
+
+/**
+ * A one-line, key-free description of a failed API call for the UI, so a
+ * problem can be diagnosed from the screen without server logs.
+ */
+export function describeFailure(e: unknown): string {
+  let text: string;
+  if (e instanceof Anthropic.APIError) text = `API error ${e.status ?? ""} ${e.message}`.trim();
+  else if (e instanceof Error) text = `${e.name}: ${e.message}`;
+  else text = String(e);
+  return text.replace(/sk-ant-[A-Za-z0-9_-]+/g, "sk-ant-…").slice(0, 240);
+}
+
+export function isTimeout(e: unknown) {
+  return e instanceof Anthropic.APIConnectionTimeoutError || (e instanceof Error && /timed out/i.test(e.message));
+}

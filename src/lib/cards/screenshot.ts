@@ -47,7 +47,8 @@ const reportTool: Anthropic.Tool = {
   name: REPORT_TOOL_NAME,
   description:
     "Report what the screenshots show for each of the card's benefits. Call exactly once. Include a reading only for benefits the screenshots actually show; leave out anything not visible.",
-  strict: true,
+  // Not strict: nullable unions in the schema, and the caller tolerates
+  // loosely-shaped input, so validation isn't worth a possible 400.
   input_schema: {
     type: "object",
     additionalProperties: false,
@@ -154,11 +155,22 @@ For each benefit the screenshots show, report how much of the current period's c
   );
   if (!call) throw new ScreenshotError("Couldn't find benefit figures in those screenshots.");
 
-  const report = call.input as ScreenshotReport;
+  const report = (call.input ?? {}) as Partial<ScreenshotReport>;
   const known = new Set(benefits.map((b) => b.benefit.id));
+  const asNumber = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const readings: BenefitReading[] = (Array.isArray(report.readings) ? report.readings : [])
+    .filter((r): r is BenefitReading => Boolean(r) && typeof r.benefitId === "string" && known.has(r.benefitId))
+    .map((r) => ({
+      benefitId: r.benefitId,
+      usedDollars: asNumber(r.usedDollars),
+      remainingDollars: asNumber(r.remainingDollars),
+      enrolled: typeof r.enrolled === "boolean" ? r.enrolled : null,
+      confidence: r.confidence === "high" || r.confidence === "medium" || r.confidence === "low" ? r.confidence : "low",
+      evidence: typeof r.evidence === "string" ? r.evidence : "",
+    }));
   return {
-    readings: report.readings.filter((r) => known.has(r.benefitId)),
-    unmatched: report.unmatched ?? [],
-    notes: report.notes?.trim() || null,
+    readings,
+    unmatched: (Array.isArray(report.unmatched) ? report.unmatched : []).filter((u): u is string => typeof u === "string"),
+    notes: typeof report.notes === "string" && report.notes.trim() ? report.notes.trim() : null,
   };
 }
